@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Test Results</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        header {
+            background-color: #4CAF50;
+            color: white;
+            text-align: center;
+            width: 100%;
+            padding: 20px;
+        }
+
+        .container {
+            display: flex;
+            justify-content: space-between;
+            width: 90%;
+            margin-top: 20px;
+        }
+
+        .table-container {
+            width: 60%;
+        }
+
+        .summary-container {
+            width: 30%;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            padding: 15px;
+        }
+
+        .summary-container h2 {
+            text-align: center;
+            margin-bottom: 15px;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        table, th, td {
+            border: 1px solid #ddd;
+        }
+
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f4f4f9;
+        }
+
+        .status-passed {
+            color: green;
+            font-weight: bold;
+        }
+
+        .status-failed {
+            color: red;
+            font-weight: bold;
+        }
+
+        .status-processing {
+            color: orange;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Dynamic Test Results</h1>
+    </header>
+    <div class="container">
+        <div class="table-container">
+            <button id="start-stream">Start Test Stream</button>
+            <h2>Test Case Results</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Input</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="test-case-results">
+                    <!-- Results will be dynamically inserted here -->
+                </tbody>
+            </table>
+        </div>
+        <div class="summary-container">
+            <h2>Summary</h2>
+            <p id="total-cases">Total Test Cases: 0</p>
+            <p id="passed-cases">Passed Test Cases: 0</p>
+            <p id="failed-cases">Failed Test Cases: 0</p>
+        </div>
+    </div>
+
+    <script>
+        const startStreamButton = document.getElementById('start-stream');
+        const tableBody = document.getElementById('test-case-results');
+
+        const totalCasesElement = document.getElementById('total-cases');
+        const passedCasesElement = document.getElementById('passed-cases');
+        const failedCasesElement = document.getElementById('failed-cases');
+
+        let totalCases = 0;
+        let passedCases = 0;
+        let failedCases = 0;
+
+        startStreamButton.addEventListener('click', () => {
+            // Clear the table and reset summary
+            tableBody.innerHTML = '';
+            totalCases = 0;
+            passedCases = 0;
+            failedCases = 0;
+            updateSummary();
+
+            // Start streaming test case updates
+            const eventSource = new EventSource('/upload');
+
+            eventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+
+                // Check for error in the response
+                if (data.error) {
+                    console.error(`Error: ${data.error}`);
+                    eventSource.close();
+                    return;
+                }
+
+                // Check for completion message
+                if (data.completed) {
+                    displayCompletionMessage(data.message);
+                    eventSource.close();
+                    return;
+                }
+
+                // Check if the row already exists based on the input
+                let existingRow = Array.from(tableBody.children).find(
+                    row => row.children[0].textContent === data.input
+                );
+
+                if (!existingRow) {
+                    // Add a new row for the input
+                    const newRow = document.createElement('tr');
+                    newRow.innerHTML = `
+                        <td>${data.input}</td>
+                        <td class="${data.status === 'Passed' 
+                            ? 'status-passed' 
+                            : (data.status === 'Failed' ? 'status-failed' : 'status-processing')}">
+                            ${data.status}
+                        </td>
+                    `;
+                    tableBody.appendChild(newRow);
+
+                    // Increment the total cases only when adding a new row
+                    totalCases++;
+                } else {
+                    // Update the row with the latest status
+                    const statusCell = existingRow.querySelector('td:last-child');
+                    statusCell.textContent = data.status;
+                    statusCell.className = data.status === 'Passed' 
+                        ? 'status-passed' 
+                        : (data.status === 'Failed' ? 'status-failed' : 'status-processing');
+                }
+
+                // Update the passed and failed counts
+                if (data.status === 'Passed') {
+                    passedCases++;
+                } else if (data.status === 'Failed') {
+                    failedCases++;
+                }
+
+                // Update the summary
+                updateSummary();
+            };
+
+            eventSource.onerror = function() {
+                console.error("An error occurred during streaming.");
+                eventSource.close();
+            };
+        });
+
+        function updateSummary() {
+            totalCasesElement.textContent = `Total Test Cases: ${totalCases}`;
+            passedCasesElement.textContent = `Passed Test Cases: ${passedCases}`;
+            failedCasesElement.textContent = `Failed Test Cases: ${failedCases}`;
+        }
+
+        function displayCompletionMessage(message) {
+            const container = document.querySelector('.container');
+            const completionMessage = document.createElement('div');
+            completionMessage.textContent = message;
+            completionMessage.style.background = '#4CAF50';
+            completionMessage.style.color = 'white';
+            completionMessage.style.padding = '10px';
+            completionMessage.style.marginTop = '20px';
+            completionMessage.style.borderRadius = '8px';
+            completionMessage.style.textAlign = 'center';
+            completionMessage.style.fontWeight = 'bold';
+            container.appendChild(completionMessage);
+        }
+    </script>
+</body>
+</html>
